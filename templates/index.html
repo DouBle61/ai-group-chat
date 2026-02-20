@@ -298,13 +298,12 @@
         </div>
     </div>
 
-    <script>
+       <script>
         const chatContainer = document.getElementById('chat-container');
         const questionInput = document.getElementById('question-input');
         const sendBtn = document.getElementById('send-btn');
         const loading = document.getElementById('loading');
 
-        // 按回车发送
         questionInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') sendQuestion();
         });
@@ -315,35 +314,54 @@
 
             const rounds = document.getElementById('rounds-select').value;
 
-            // 清空输入框和聊天区
             questionInput.value = '';
             chatContainer.innerHTML = '';
             chatContainer.appendChild(loading);
 
-            // 禁用按钮
             sendBtn.disabled = true;
             sendBtn.textContent = '讨论中...';
             loading.classList.add('show');
 
-            // 发送请求
             fetch('/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ question: question, rounds: parseInt(rounds) })
             })
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) {
+                    return res.json().then(data => { throw new Error(data.error || '请求失败'); });
+                }
+                return res.json();
+            })
             .then(data => {
                 loading.classList.remove('show');
-                displayMessages(data.messages);
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    displayMessages(data.messages);
+                }
                 sendBtn.disabled = false;
                 sendBtn.textContent = '发送';
             })
             .catch(err => {
                 loading.classList.remove('show');
-                alert('出错了：' + err.message);
+                showError(err.message);
                 sendBtn.disabled = false;
                 sendBtn.textContent = '发送';
             });
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'message error';
+            errorDiv.innerHTML = `
+                <div class="avatar" style="background: #4a1a1a; border: 2px solid #ff6b6b">⚠️</div>
+                <div class="message-body">
+                    <div class="message-name" style="color: #ff6b6b">系统提示</div>
+                    <div class="message-bubble">${message}</div>
+                </div>
+            `;
+            chatContainer.insertBefore(errorDiv, loading);
         }
 
         function displayMessages(messages) {
@@ -351,20 +369,18 @@
             let delay = 0;
 
             messages.forEach((msg, index) => {
-                // 轮次分隔线
                 if (msg.round && msg.round !== currentRound) {
                     currentRound = msg.round;
                     setTimeout(() => {
                         const divider = document.createElement('div');
                         divider.className = 'round-divider';
-                        divider.innerHTML = `<span>📢 第 ${currentRound} 轮讨论</span>`;
+                        divider.innerHTML = '<span>📢 第 ' + currentRound + ' 轮讨论</span>';
                         chatContainer.insertBefore(divider, loading);
                         chatContainer.scrollTop = chatContainer.scrollHeight;
                     }, delay);
                     delay += 300;
                 }
 
-                // 总结分隔线
                 if (msg.type === 'summary') {
                     setTimeout(() => {
                         const divider = document.createElement('div');
@@ -377,21 +393,20 @@
 
                 setTimeout(() => {
                     const messageDiv = document.createElement('div');
-                    messageDiv.className = `message ${msg.type}`;
+                    messageDiv.className = 'message ' + msg.type;
 
                     const emoji = msg.type === 'user' ? '👤' : msg.emoji;
                     const name = msg.speaker;
                     const bgColor = msg.color || '#0f3460';
 
-                    messageDiv.innerHTML = `
-                        <div class="avatar" style="background: ${bgColor}22; border: 2px solid ${bgColor}">
-                            ${emoji}
-                        </div>
-                        <div class="message-body">
-                            <div class="message-name" style="color: ${bgColor}">${name}</div>
-                            <div class="message-bubble">${msg.content}</div>
-                        </div>
-                    `;
+                    messageDiv.innerHTML =
+                        '<div class="avatar" style="background: ' + bgColor + '22; border: 2px solid ' + bgColor + '">' +
+                            emoji +
+                        '</div>' +
+                        '<div class="message-body">' +
+                            '<div class="message-name" style="color: ' + bgColor + '">' + name + '</div>' +
+                            '<div class="message-bubble">' + msg.content + '</div>' +
+                        '</div>';
 
                     chatContainer.insertBefore(messageDiv, loading);
                     chatContainer.scrollTop = chatContainer.scrollHeight;

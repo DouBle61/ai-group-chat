@@ -11,12 +11,16 @@ load_dotenv()
 app = Flask(__name__)
 
 # 硅基流动客户端
+api_key = os.getenv("SILICONFLOW_API_KEY")
+if not api_key:
+    print("⚠️ 警告：SILICONFLOW_API_KEY 未设置！")
+
 client = OpenAI(
-    api_key=os.getenv("SILICONFLOW_API_KEY"),
+    api_key=api_key or "missing-key",
     base_url="https://api.siliconflow.cn/v1",
 )
 
-# 参与群聊的 AI 们（用你测试通过的模型名称）
+# 参与群聊的 AI 们
 AI_LIST = [
     {"name": "DeepSeek", "model": "deepseek-ai/DeepSeek-V3", "emoji": "🔵", "color": "#4A90D9"},
     {"name": "KIMI", "model": "moonshotai/Kimi-K2-Instruct", "emoji": "🟣", "color": "#9B59B6"},
@@ -67,86 +71,106 @@ def home():
     return render_template("index.html", ai_list=AI_LIST)
 
 
+@app.route("/health")
+def health():
+    """健康检查"""
+    return jsonify({"status": "ok", "api_key_set": bool(api_key)})
+
+
 @app.route("/chat", methods=["POST"])
 def chat():
     """处理用户发送的消息"""
-    data = request.json
-    question = data.get("question", "")
-    rounds = data.get("rounds", 2)
-
-    # 清空历史（每次新问题重新开始）
-    chat_history.clear()
-    chat_history.append({"speaker": "用户", "content": question, "type": "user"})
-
-    all_messages = [{"speaker": "用户", "content": question, "type": "user"}]
-
-    # 多轮讨论
-    for r in range(1, rounds + 1):
-        for ai in AI_LIST:
-            try:
-                answer = ask_ai(ai, format_history())
-                msg = {
-                    "speaker": ai["name"],
-                    "content": answer,
-                    "type": "ai",
-                    "emoji": ai["emoji"],
-                    "color": ai["color"],
-                    "round": r,
-                }
-                chat_history.append(msg)
-                all_messages.append(msg)
-            except Exception as e:
-                msg = {
-                    "speaker": ai["name"],
-                    "content": f"[发言失败：{e}]",
-                    "type": "error",
-                    "emoji": ai["emoji"],
-                    "color": ai["color"],
-                    "round": r,
-                }
-                chat_history.append(msg)
-                all_messages.append(msg)
-
-    # 生成总结
     try:
-        summary = client.chat.completions.create(
-            model="deepseek-ai/DeepSeek-V3",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "你是讨论主持人，请总结以下讨论：\n"
-                        "1. 各方的主要观点\n"
-                        "2. 大家的共识\n"
-                        "3. 主要分歧\n"
-                        "用中文回答，不超过200字。"
-                    ),
-                },
-                {"role": "user", "content": format_history()},
-            ],
-            max_tokens=400,
-        )
-        all_messages.append(
-            {
-                "speaker": "主持人",
-                "content": summary.choices[0].message.content,
-                "type": "summary",
-                "emoji": "🎯",
-                "color": "#E74C3C",
-            }
-        )
-    except Exception as e:
-        all_messages.append(
-            {
-                "speaker": "主持人",
-                "content": f"总结生成失败：{e}",
-                "type": "error",
-                "emoji": "🎯",
-                "color": "#E74C3C",
-            }
-        )
+        data = request.json
+        if not data or "question" not in data:
+            return jsonify({"error": "请输入问题"}), 400
 
-    return jsonify({"messages": all_messages})
+        question = data.get("question", "").strip()
+        if not question:
+            return jsonify({"error": "问题不能为空"}), 400
+
+        rounds = data.get("rounds", 2)
+
+        # 检查 API Key
+        if not api_key:
+            return jsonify({"error": "API Key 未配置，请在 Render 环境变量中设置 SILICONFLOW_API_KEY"}), 500
+
+        # 清空历史
+        chat_history.clear()
+        chat_history.append({"speaker": "用户", "content": question, "type": "user"})
+
+        all_messages = [{"speaker": "用户", "content": question, "type": "user"}]
+
+        # 多轮讨论
+        for r in range(1, rounds + 1):
+            for ai in AI_LIST:
+                try:
+                    answer = ask_ai(ai, format_history())
+                    msg = {
+                        "speaker": ai["name"],
+                        "content": answer,
+                        "type": "ai",
+                        "emoji": ai["emoji"],
+                        "color": ai["color"],
+                        "round": r,
+                    }
+                    chat_history.append(msg)
+                    all_messages.append(msg)
+                except Exception as e:
+                    msg = {
+                        "speaker": ai["name"],
+                        "content": f"[发言失败：{e}]",
+                        "type": "error",
+                        "emoji": ai["emoji"],
+                        "color": ai["color"],
+                        "round": r,
+                    }
+                    chat_history.append(msg)
+                    all_messages.append(msg)
+
+        # 生成总结
+        try:
+            summary = client.chat.completions.create(
+                model="deepseek-ai/DeepSeek-V3",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是讨论主持人，请总结以下讨论：\n"
+                            "1. 各方的主要观点\n"
+                            "2. 大家的共识\n"
+                            "3. 主要分歧\n"
+                            "用中文回答，不超过200字。"
+                        ),
+                    },
+                    {"role": "user", "content": format_history()},
+                ],
+                max_tokens=400,
+            )
+            all_messages.append(
+                {
+                    "speaker": "主持人",
+                    "content": summary.choices[0].message.content,
+                    "type": "summary",
+                    "emoji": "🎯",
+                    "color": "#E74C3C",
+                }
+            )
+        except Exception as e:
+            all_messages.append(
+                {
+                    "speaker": "主持人",
+                    "content": f"总结生成失败：{e}",
+                    "type": "error",
+                    "emoji": "🎯",
+                    "color": "#E74C3C",
+                }
+            )
+
+        return jsonify({"messages": all_messages})
+
+    except Exception as e:
+        return jsonify({"error": f"服务器错误：{str(e)}"}), 500
 
 
 if __name__ == "__main__":
