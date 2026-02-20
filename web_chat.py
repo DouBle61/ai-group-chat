@@ -1,20 +1,17 @@
-# ===== AI 群聊系统 - 网页版 =====
+# ===== AI 群聊系统 - 网页版（流式优化） =====
 
 import os
+import json
 from dotenv import load_dotenv
 from openai import OpenAI
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 
 load_dotenv()
 
-# 创建网页应用
 app = Flask(__name__)
 
 # 硅基流动客户端
 api_key = os.getenv("SILICONFLOW_API_KEY")
-if not api_key:
-    print("⚠️ 警告：SILICONFLOW_API_KEY 未设置！")
-
 client = OpenAI(
     api_key=api_key or "missing-key",
     base_url="https://api.siliconflow.cn/v1",
@@ -25,17 +22,13 @@ AI_LIST = [
     {"name": "DeepSeek", "model": "deepseek-ai/DeepSeek-V3", "emoji": "🔵", "color": "#4A90D9"},
     {"name": "KIMI", "model": "moonshotai/Kimi-K2-Instruct", "emoji": "🟣", "color": "#9B59B6"},
     {"name": "智谱", "model": "THUDM/GLM-4-9B-Chat", "emoji": "🟢", "color": "#2ECC71"},
-    {"name": "千问", "model": "Qwen/Qwen3-8B", "emoji": "🟠", "color": "#E67E22"},
+    {"name": "千问", "model": "Qwen/Qwen3-8B", "emoji": "���", "color": "#E67E22"},
 ]
-
-# 对话历史
-chat_history = []
 
 
 def ask_ai(ai, conversation_text):
     """让某个 AI 基于对话历史发言"""
     other_names = ", ".join(a["name"] for a in AI_LIST if a["name"] != ai["name"])
-
     response = client.chat.completions.create(
         model=ai["model"],
         messages=[
@@ -57,53 +50,50 @@ def ask_ai(ai, conversation_text):
     return response.choices[0].message.content
 
 
-def format_history():
-    """把对话历史格式化成文字"""
-    text = ""
-    for msg in chat_history:
-        text += f"{msg['speaker']}：{msg['content']}\n\n"
-    return text
-
-
 @app.route("/")
 def home():
-    """显示主页"""
     return render_template("index.html", ai_list=AI_LIST)
 
 
 @app.route("/health")
 def health():
-    """健康检查"""
     return jsonify({"status": "ok", "api_key_set": bool(api_key)})
 
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    """处理用户发送的消息"""
-    try:
-        data = request.json
-        if not data or "question" not in data:
-            return jsonify({"error": "请输入问题"}), 400
+    """流式处理：每个 AI 回答完立刻发送给前端"""
+    data = request.json
+    if not data or not data.get("question", "").strip():
+        return jsonify({"error": "请输入问题"}), 400
 
-        question = data.get("question", "").strip()
-        if not question:
-            return jsonify({"error": "问题不能为空"}), 400
+    question = data["question"].strip()
+    rounds = data.get("rounds", 2)
 
-        rounds = data.get("rounds", 2)
+    if not api_key:
+        return jsonify({"error": "API Key 未配置"}), 500
 
-        # 检查 API Key
-        if not api_key:
-            return jsonify({"error": "API Key 未配置，请在 Render 环境变量中设置 SILICONFLOW_API_KEY"}), 500
+    def generate():
+        chat_history = []
+        chat_history.append({"speaker": "用户", "content": question})
 
-        # 清空历史
-        chat_history.clear()
-        chat_history.append({"speaker": "用户", "content": question, "type": "user"})
+        # 发送用户消息
+        user_msg = {"speaker": "用户", "content": question, "type": "user"}
+        yield f"data: {json.dumps(user_msg, ensure_ascii=False)}\n\n"
 
-        all_messages = [{"speaker": "用户", "content": question, "type": "user"}]
+        # 格式化历史
+        def format_history():
+            return "\n\n".join(f"{m['speaker']}：{m['content']}" for m in chat_history)
 
         # 多轮讨论
         for r in range(1, rounds + 1):
+            # 发送轮次标记
+            yield f"data: {json.dumps({'type': 'round', 'round': r}, ensure_ascii=False)}\n\n"
+
             for ai in AI_LIST:
+                # 告诉前端谁在思考
+                yield f"data: {json.dumps({'type': 'thinking', 'speaker': ai['name'], 'emoji': ai['emoji']}, ensure_ascii=False)}\n\n"
+
                 try:
                     answer = ask_ai(ai, format_history())
                     msg = {
@@ -114,8 +104,7 @@ def chat():
                         "color": ai["color"],
                         "round": r,
                     }
-                    chat_history.append(msg)
-                    all_messages.append(msg)
+                    chat_history.append({"speaker": ai["name"], "content": answer})
                 except Exception as e:
                     msg = {
                         "speaker": ai["name"],
@@ -125,10 +114,13 @@ def chat():
                         "color": ai["color"],
                         "round": r,
                     }
-                    chat_history.append(msg)
-                    all_messages.append(msg)
+                    chat_history.append({"speaker": ai["name"], "content": msg["content"]})
 
-        # 生成总结
+                yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+
+        # 总结
+        yield f"data: {json.dumps({'type': 'summary_start'}, ensure_ascii=False)}\n\n"
+
         try:
             summary = client.chat.completions.create(
                 model="deepseek-ai/DeepSeek-V3",
@@ -147,30 +139,33 @@ def chat():
                 ],
                 max_tokens=400,
             )
-            all_messages.append(
-                {
-                    "speaker": "主持人",
-                    "content": summary.choices[0].message.content,
-                    "type": "summary",
-                    "emoji": "🎯",
-                    "color": "#E74C3C",
-                }
-            )
+            msg = {
+                "speaker": "主持人",
+                "content": summary.choices[0].message.content,
+                "type": "summary",
+                "emoji": "🎯",
+                "color": "#E74C3C",
+            }
         except Exception as e:
-            all_messages.append(
-                {
-                    "speaker": "主持人",
-                    "content": f"总结生成失败：{e}",
-                    "type": "error",
-                    "emoji": "🎯",
-                    "color": "#E74C3C",
-                }
-            )
+            msg = {
+                "speaker": "主持人",
+                "content": f"总结生成失败：{e}",
+                "type": "error",
+                "emoji": "🎯",
+                "color": "#E74C3C",
+            }
 
-        return jsonify({"messages": all_messages})
+        yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+        yield "data: {\"type\": \"done\"}\n\n"
 
-    except Exception as e:
-        return jsonify({"error": f"服务器错误：{str(e)}"}), 500
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 if __name__ == "__main__":
