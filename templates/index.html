@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 群聊</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        /* 顶部标���栏 */
+        .header {
+            background: #16213e;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 2px solid #0f3460;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .header .participants {
+            font-size: 14px;
+            color: #888;
+        }
+
+        /* 聊天区域 */
+        .chat-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            padding-bottom: 200px;
+        }
+
+        /* 单条消息 */
+        .message {
+            display: flex;
+            margin-bottom: 16px;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            flex-shrink: 0;
+            margin-right: 12px;
+        }
+
+        .message-body {
+            flex: 1;
+        }
+
+        .message-name {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .message-bubble {
+            background: #16213e;
+            padding: 12px 16px;
+            border-radius: 4px 18px 18px 18px;
+            font-size: 15px;
+            line-height: 1.6;
+            max-width: 90%;
+            display: inline-block;
+            word-wrap: break-word;
+        }
+
+        /* 用户消息（右对齐） */
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message.user .avatar {
+            margin-right: 0;
+            margin-left: 12px;
+        }
+
+        .message.user .message-body {
+            text-align: right;
+        }
+
+        .message.user .message-bubble {
+            background: #0f3460;
+            border-radius: 18px 4px 18px 18px;
+        }
+
+        /* 总结消息 */
+        .message.summary .message-bubble {
+            background: linear-gradient(135deg, #2d1b69, #1a1a4e);
+            border: 1px solid #533483;
+        }
+
+        /* 轮次分隔 */
+        .round-divider {
+            text-align: center;
+            margin: 24px 0;
+            color: #666;
+            font-size: 13px;
+        }
+
+        .round-divider span {
+            background: #1a1a2e;
+            padding: 0 16px;
+            position: relative;
+        }
+
+        .round-divider::before {
+            content: '';
+            position: absolute;
+            left: 10%;
+            right: 10%;
+            height: 1px;
+            background: #333;
+            top: 50%;
+        }
+
+        .round-divider {
+            position: relative;
+        }
+
+        /* 输入区域 */
+        .input-area {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #16213e;
+            padding: 16px 20px;
+            border-top: 2px solid #0f3460;
+        }
+
+        .input-wrapper {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        #question-input {
+            flex: 1;
+            padding: 14px 18px;
+            border-radius: 24px;
+            border: 1px solid #333;
+            background: #1a1a2e;
+            color: #eee;
+            font-size: 15px;
+            outline: none;
+        }
+
+        #question-input:focus {
+            border-color: #533483;
+        }
+
+        #question-input::placeholder {
+            color: #666;
+        }
+
+        .rounds-select {
+            padding: 14px 12px;
+            border-radius: 12px;
+            border: 1px solid #333;
+            background: #1a1a2e;
+            color: #eee;
+            font-size: 14px;
+            outline: none;
+        }
+
+        #send-btn {
+            padding: 14px 28px;
+            border-radius: 24px;
+            border: none;
+            background: linear-gradient(135deg, #533483, #0f3460);
+            color: white;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        #send-btn:hover {
+            transform: scale(1.05);
+        }
+
+        #send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* 加载动画 */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .loading-dots {
+            display: inline-flex;
+            gap: 6px;
+        }
+
+        .loading-dots span {
+            width: 10px;
+            height: 10px;
+            background: #533483;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite both;
+        }
+
+        .loading-dots span:nth-child(2) { animation-delay: 0.16s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.32s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        .loading-text {
+            margin-top: 10px;
+            color: #888;
+            font-size: 14px;
+        }
+
+        /* 错误消息 */
+        .message.error .message-bubble {
+            background: #4a1a1a;
+            border: 1px solid #ff6b6b;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🤖 AI 群聊</h1>
+        <div class="participants">
+            {% for ai in ai_list %}
+                {{ ai.emoji }} {{ ai.name }}{% if not loop.last %} · {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="chat-container" id="chat-container">
+        <div class="loading" id="loading">
+            <div class="loading-dots">
+                <span></span><span></span><span></span>
+            </div>
+            <div class="loading-text" id="loading-text">AI 们正在热烈讨论中...</div>
+        </div>
+    </div>
+
+    <div class="input-area">
+        <div class="input-wrapper">
+            <div class="input-row">
+                <input type="text" id="question-input"
+                       placeholder="输入一个问题，让 AI 们讨论..."
+                       autocomplete="off">
+                <select class="rounds-select" id="rounds-select">
+                    <option value="1">1轮</option>
+                    <option value="2" selected>2轮</option>
+                    <option value="3">3轮</option>
+                </select>
+                <button id="send-btn" onclick="sendQuestion()">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const questionInput = document.getElementById('question-input');
+        const sendBtn = document.getElementById('send-btn');
+        const loading = document.getElementById('loading');
+
+        // 按回车发送
+        questionInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') sendQuestion();
+        });
+
+        function sendQuestion() {
+            const question = questionInput.value.trim();
+            if (!question) return;
+
+            const rounds = document.getElementById('rounds-select').value;
+
+            // 清空输入框和聊天区
+            questionInput.value = '';
+            chatContainer.innerHTML = '';
+            chatContainer.appendChild(loading);
+
+            // 禁用按钮
+            sendBtn.disabled = true;
+            sendBtn.textContent = '讨论中...';
+            loading.classList.add('show');
+
+            // 发送请求
+            fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: question, rounds: parseInt(rounds) })
+            })
+            .then(res => res.json())
+            .then(data => {
+                loading.classList.remove('show');
+                displayMessages(data.messages);
+                sendBtn.disabled = false;
+                sendBtn.textContent = '发送';
+            })
+            .catch(err => {
+                loading.classList.remove('show');
+                alert('出错了：' + err.message);
+                sendBtn.disabled = false;
+                sendBtn.textContent = '发送';
+            });
+        }
+
+        function displayMessages(messages) {
+            let currentRound = 0;
+            let delay = 0;
+
+            messages.forEach((msg, index) => {
+                // 轮次分隔线
+                if (msg.round && msg.round !== currentRound) {
+                    currentRound = msg.round;
+                    setTimeout(() => {
+                        const divider = document.createElement('div');
+                        divider.className = 'round-divider';
+                        divider.innerHTML = `<span>📢 第 ${currentRound} 轮讨论</span>`;
+                        chatContainer.insertBefore(divider, loading);
+                        chatContainer.scrollTop = chatContainer.scrollHeight;
+                    }, delay);
+                    delay += 300;
+                }
+
+                // 总结分隔线
+                if (msg.type === 'summary') {
+                    setTimeout(() => {
+                        const divider = document.createElement('div');
+                        divider.className = 'round-divider';
+                        divider.innerHTML = '<span>📋 讨论总结</span>';
+                        chatContainer.insertBefore(divider, loading);
+                    }, delay);
+                    delay += 300;
+                }
+
+                setTimeout(() => {
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = `message ${msg.type}`;
+
+                    const emoji = msg.type === 'user' ? '👤' : msg.emoji;
+                    const name = msg.speaker;
+                    const bgColor = msg.color || '#0f3460';
+
+                    messageDiv.innerHTML = `
+                        <div class="avatar" style="background: ${bgColor}22; border: 2px solid ${bgColor}">
+                            ${emoji}
+                        </div>
+                        <div class="message-body">
+                            <div class="message-name" style="color: ${bgColor}">${name}</div>
+                            <div class="message-bubble">${msg.content}</div>
+                        </div>
+                    `;
+
+                    chatContainer.insertBefore(messageDiv, loading);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                }, delay);
+
+                delay += 500;
+            });
+        }
+    </script>
+</body>
+</html>

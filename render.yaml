@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: ai-group-chat
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn web_chat:app
+    envVars:
+      - key: SILICONFLOW_API_KEY
+        sync: false
