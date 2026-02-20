@@ -22,7 +22,7 @@ AI_LIST = [
     {"name": "DeepSeek", "model": "deepseek-ai/DeepSeek-V3", "emoji": "🔵", "color": "#4A90D9"},
     {"name": "KIMI", "model": "moonshotai/Kimi-K2-Instruct", "emoji": "🟣", "color": "#9B59B6"},
     {"name": "智谱", "model": "THUDM/GLM-4-9B-Chat", "emoji": "🟢", "color": "#2ECC71"},
-    {"name": "千问", "model": "Qwen/Qwen3-8B", "emoji": "���", "color": "#E67E22"},
+    {"name": "千问", "model": "Qwen/Qwen3-8B", "emoji": "🟠", "color": "#E67E22"},
 ]
 
 
