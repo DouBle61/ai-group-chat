@@ -290,4 +290,22 @@
                 '<div class="avatar" style="background: ' + color + '22; border: 2px solid ' + color + '">' +
                     emoji +
                 '</div>' +
-                '<div class="message-body">
+                '<div class="message-body">' +
+                    '<div class="message-name" style="color: ' + color + '">' + data.speaker + '</div>' +
+                    '<div class="message-bubble">' + data.content + '</div>' +
+                '</div>';
+            chatContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        function showError(message) {
+            var errorData = { speaker: '错误', content: message };
+            addMessage(errorData, 'error', '❌', '#ff6b6b');
+        }
+
+        function scrollToBottom() {
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+    </script>
+</body>
+</html>
